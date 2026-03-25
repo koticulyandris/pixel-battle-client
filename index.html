@@ -8,14 +8,19 @@
 </head>
 <body>
   <canvas id="canvas"></canvas>
+
   <div style="position: fixed; top: 10px; left: 10px; z-index: 10;">
     <input type="color" id="colorPicker" value="#ff0000"/>
+    <button id="placeBtn" style="display:block; margin-top:5px;">Поставить</button>
+    <div id="cooldown" style="margin-top:5px; background:#fff; padding:5px;">
+      Поставить
+    </div>
   </div>
+
   <div id="timer" style="position: fixed; top: 10px; right: 10px; background: rgb(255, 255, 255); padding: 5px;"></div>
 
   <script>
-    // Подключение к серверу
-    const socket = io("https://pixel-battle-server.onrender.com/"); // твой Render URL
+    const socket = io("https://pixel-battle-server.onrender.com");
 
     const canvas = document.getElementById("canvas");
     const ctx = canvas.getContext("2d");
@@ -24,16 +29,17 @@
     let PIXEL;
     let grid = [];
 
-    // Зум и пан
+    let selectedPixel = null;
+    let canPlace = true;
+    let cooldown = 5000;
+
     let scale = 1, offsetX = 0, offsetY = 0;
     let isDragging = false, lastX = 0, lastY = 0;
 
-    // VK ID
     let userId = null;
     vkBridge.send('VKWebAppInit');
     vkBridge.send('VKWebAppGetUserInfo').then(data => userId = data.id);
 
-    // canvas адаптивный
     function resizeCanvas() {
       const screenSize = Math.min(window.innerWidth, window.innerHeight) - 20;
       canvas.width = screenSize;
@@ -43,9 +49,9 @@
     }
     window.addEventListener("resize", resizeCanvas);
 
-    // Отрисовка канвы
     function draw() {
       ctx.setTransform(scale, 0, 0, scale, offsetX, offsetY);
+
       for (let y = 0; y < SIZE; y++) {
         for (let x = 0; x < SIZE; x++) {
           const pixel = grid[y][x];
@@ -53,10 +59,22 @@
           ctx.fillRect(x * PIXEL, y * PIXEL, PIXEL, PIXEL);
         }
       }
+
+      // подсветка выбранного пикселя
+      if (selectedPixel) {
+        ctx.strokeStyle = "black";
+        ctx.lineWidth = 2;
+        ctx.strokeRect(
+          selectedPixel.x * PIXEL,
+          selectedPixel.y * PIXEL,
+          PIXEL,
+          PIXEL
+        );
+      }
     }
 
-    // Обработка инициализации
     let startTime, duration;
+
     socket.on("init", (data) => {
       grid = data.canvas;
       startTime = data.startTime;
@@ -65,20 +83,16 @@
       startTimer();
     });
 
-    // Обновление одного пикселя
     socket.on("update", ({ x, y, color, userId: pid }) => {
       grid[y][x] = { color, userId: pid };
-      ctx.fillStyle = color;
-      ctx.fillRect(x * PIXEL, y * PIXEL, PIXEL, PIXEL);
+      draw();
     });
 
-    // 🔄 Обновление полной канвы каждую секунду
     socket.on("fullCanvasUpdate", (fullCanvas) => {
       grid = fullCanvas;
       draw();
     });
 
-    // Таймер батла
     function startTimer() {
       setInterval(() => {
         const timeLeft = duration - (Date.now() - startTime);
@@ -87,7 +101,6 @@
       }, 1000);
     }
 
-    // Получаем координаты пикселя по клику
     function getPixelCoords(clientX, clientY) {
       const rect = canvas.getBoundingClientRect();
       const x = (clientX - rect.left - offsetX) / scale;
@@ -95,17 +108,47 @@
       return { x: Math.floor(x / PIXEL), y: Math.floor(y / PIXEL) };
     }
 
-    // Клик на пиксель
     canvas.addEventListener("click", (e) => {
+      const { x, y } = getPixelCoords(e.clientX, e.clientY);
+      selectedPixel = { x, y };
+      draw();
+    });
+
+    const placeBtn = document.getElementById("placeBtn");
+    const cooldownDiv = document.getElementById("cooldown");
+
+    placeBtn.addEventListener("click", () => {
+      if (!selectedPixel) return;
+      if (!canPlace) return;
       if (!userId) return;
       if (Date.now() - startTime > duration) return;
 
-      const { x, y } = getPixelCoords(e.clientX, e.clientY);
+      const { x, y } = selectedPixel;
       const color = document.getElementById("colorPicker").value;
+
       socket.emit("pixel", { x, y, color, userId });
+
+      startCooldown();
     });
 
-    // Drag и touch
+    function startCooldown() {
+      canPlace = false;
+      let timeLeft = cooldown / 1000;
+
+      cooldownDiv.innerText = timeLeft + " сек";
+
+      const interval = setInterval(() => {
+        timeLeft--;
+        cooldownDiv.innerText = timeLeft + " сек";
+
+        if (timeLeft <= 0) {
+          clearInterval(interval);
+          canPlace = true;
+          cooldownDiv.innerText = "Поставить";
+        }
+      }, 1000);
+    }
+
     canvas.addEventListener("mousedown", e => { isDragging = true; lastX = e.clientX; lastY = e.clientY; });
     canvas.addEventListener("mousemove", e => { 
       if(!isDragging) return; 
@@ -128,8 +171,11 @@
     });
     canvas.addEventListener("touchend", () => { isDragging = false; });
 
-    // Zoom колесом мыши
-    canvas.addEventListener("wheel", e => { e.preventDefault(); scale *= e.deltaY < 0 ? 1.1 : 0.9; draw(); });
+    canvas.addEventListener("wheel", e => { 
+      e.preventDefault(); 
+      scale *= e.deltaY < 0 ? 1.1 : 0.9; 
+      draw(); 
+    });
   </script>
 </body>
 </html>
