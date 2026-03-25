@@ -11,7 +11,7 @@
   <div style="position: fixed; top: 10px; left: 10px; z-index: 10;">
     <input type="color" id="colorPicker" value="#ff0000"/>
   </div>
-  <div id="timer" style="position: fixed; top: 10px; right: 10px; background: rgb(15, 189, 30); padding: 5px;"></div>
+  <div id="timer" style="position: fixed; top: 10px; right: 10px; background: rgb(255, 255, 255); padding: 5px;"></div>
 
   <script>
     // Подключение к серверу
@@ -20,7 +20,7 @@
     const canvas = document.getElementById("canvas");
     const ctx = canvas.getContext("2d");
 
-    const SIZE = 50;
+    const SIZE = 100;
     let PIXEL;
     let grid = [];
 
