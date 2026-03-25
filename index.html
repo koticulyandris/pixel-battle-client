@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Pixel Battle VK</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+  <script src="https://unpkg.com/@vkontakte/vk-bridge/dist/browser.min.js"></script>
+</head>
+<body>
+  <canvas id="canvas"></canvas>
+  <div style="position: fixed; top: 10px; left: 10px; z-index: 10;">
+    <input type="color" id="colorPicker" value="#ff0000"/>
+  </div>
+  <div id="timer" style="position: fixed; top: 10px; right: 10px; background: white; padding: 5px;"></div>
+
+  <script>
+    // Подключение к серверу
+    const socket = io("https://pixel-battle-server.onrender.com"); // твой Render URL
+
+    const canvas = document.getElementById("canvas");
+    const ctx = canvas.getContext("2d");
+
+    const SIZE = 50;
+    let PIXEL;
+    let grid = [];
+
+    // Зум и пан
+    let scale = 1, offsetX = 0, offsetY = 0;
+    let isDragging = false, lastX = 0, lastY = 0;
+
+    // VK ID
+    let userId = null;
+    vkBridge.send('VKWebAppInit');
+    vkBridge.send('VKWebAppGetUserInfo').then(data => userId = data.id);
+
+    // canvas адаптивный
+    function resizeCanvas() {
+      const screenSize = Math.min(window.innerWidth, window.innerHeight) - 20;
+      canvas.width = screenSize;
+      canvas.height = screenSize;
+      PIXEL = canvas.width / SIZE;
+      draw();
+    }
+    window.addEventListener("resize", resizeCanvas);
+
+    // Отрисовка канвы
+    function draw() {
+      ctx.setTransform(scale, 0, 0, scale, offsetX, offsetY);
+      for (let y = 0; y < SIZE; y++) {
+        for (let x = 0; x < SIZE; x++) {
+          const pixel = grid[y][x];
+          ctx.fillStyle = pixel ? pixel.color : "#FFFFFF";
+          ctx.fillRect(x * PIXEL, y * PIXEL, PIXEL, PIXEL);
+        }
+      }
+    }
+
+    // Обработка инициализации
+    let startTime, duration;
+    socket.on("init", (data) => {
+      grid = data.canvas;
+      startTime = data.startTime;
+      duration = data.duration;
+      resizeCanvas();
+      startTimer();
+    });
+
+    // Обновление одного пикселя
+    socket.on("update", ({ x, y, color, userId: pid }) => {
+      grid[y][x] = { color, userId: pid };
+      ctx.fillStyle = color;
+      ctx.fillRect(x * PIXEL, y * PIXEL, PIXEL, PIXEL);
+    });
+
+    // 🔄 Обновление полной канвы каждую секунду
+    socket.on("fullCanvasUpdate", (fullCanvas) => {
+      grid = fullCanvas;
+      draw();
+    });
+
+    // Таймер батла
+    function startTimer() {
+      setInterval(() => {
+        const timeLeft = duration - (Date.now() - startTime);
+        document.getElementById("timer").innerText =
+          timeLeft <= 0 ? "Батл завершён" : Math.ceil(timeLeft / 1000) + " сек";
+      }, 1000);
+    }
+
+    // Получаем координаты пикселя по клику
+    function getPixelCoords(clientX, clientY) {
+      const rect = canvas.getBoundingClientRect();
+      const x = (clientX - rect.left - offsetX) / scale;
+      const y = (clientY - rect.top - offsetY) / scale;
+      return { x: Math.floor(x / PIXEL), y: Math.floor(y / PIXEL) };
+    }
+
+    // Клик на пиксель
+    canvas.addEventListener("click", (e) => {
+      if (!userId) return;
+      if (Date.now() - startTime > duration) return;
+
+      const { x, y } = getPixelCoords(e.clientX, e.clientY);
+      const color = document.getElementById("colorPicker").value;
+      socket.emit("pixel", { x, y, color, userId });
+    });
+
+    // Drag и touch
+    canvas.addEventListener("mousedown", e => { isDragging = true; lastX = e.clientX; lastY = e.clientY; });
+    canvas.addEventListener("mousemove", e => { 
+      if(!isDragging) return; 
+      offsetX += e.clientX - lastX; 
+      offsetY += e.clientY - lastY; 
+      lastX = e.clientX; lastY = e.clientY; 
+      draw(); 
+    });
+    canvas.addEventListener("mouseup", () => { isDragging = false; });
+
+    canvas.addEventListener("touchstart", e => { isDragging = true; lastX = e.touches[0].clientX; lastY = e.touches[0].clientY; });
+    canvas.addEventListener("touchmove", e => { 
+      if(!isDragging) return; 
+      if(e.touches.length == 1){ 
+        offsetX += e.touches[0].clientX - lastX; 
+        offsetY += e.touches[0].clientY - lastY; 
+        lastX = e.touches[0].clientX; lastY = e.touches[0].clientY; 
+        draw(); 
+      }
+    });
+    canvas.addEventListener("touchend", () => { isDragging = false; });
+
+    // Zoom колесом мыши
+    canvas.addEventListener("wheel", e => { e.preventDefault(); scale *= e.deltaY < 0 ? 1.1 : 0.9; draw(); });
+  </script>
+</body>
+</html>
